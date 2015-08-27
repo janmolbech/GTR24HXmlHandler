@@ -10,6 +10,7 @@ using System.Windows.Forms;
 using System.IO;
 using System.Xml;
 using System.Threading;
+using System.Xml.Linq;
 
 namespace GTR24HXmlHandler
 {
@@ -138,149 +139,179 @@ namespace GTR24HXmlHandler
 
         private bool ExtractDataFromFile(string filePath)
         {
-           
-            var xmlDoc = new XmlDocument();
-            try
-            {
-                xmlDoc.Load(filePath);
-            }
-            catch (Exception e)
-            {
 
-                Logging.AddLogEntry(filePath + " : "+ e.Message);
-                return true;
-            }
+            XDocument xmlDoc = null;
 
-            var nodePossibilities = new List<string> { "/rFactorXML/RaceResults/Practice1/Driver", "/rFactorXML/RaceResults/Warmup/Driver", "/rFactorXML/RaceResults/Race/Driver" };
-            var nodeContent = false;
-            XmlElement xelRoot = xmlDoc.DocumentElement;
-            if (xelRoot == null)
-            {
-                Logging.AddLogEntry(filePath + " : Root element is corrupted");
-                return true;
-            }
-            XmlNodeList xnlNodes=null;
+            //try
+            //{
+            //    xmlDoc.Load(filePath);
+            //    if (xmlDoc.FirstChild.NodeType == XmlNodeType.XmlDeclaration)
+            //    {
+            //        XmlDeclaration dec = (XmlDeclaration)xmlDoc.FirstChild;
+            //        dec.Encoding = "windows-1250";
+            //    }
+            //    else
+            //    {
+            //        XmlDeclaration dec = xmlDoc.CreateXmlDeclaration("1.0", null, null);
+            //        dec.Encoding = "windows-1250";
+            //        xmlDoc.InsertBefore(dec, xmlDoc.DocumentElement);
+            //    }
+            //}
+            //catch (Exception e)
+            //{
 
-           
-            foreach (var n in nodePossibilities)
+            //    Logging.AddLogEntry(filePath + " : "+ e.Message);
+            //    return true;
+            //}
+            using (StreamReader docReader = new StreamReader(filePath, Encoding.GetEncoding("windows-1250")))
             {
-                xnlNodes = xelRoot.SelectNodes(n);
-                if (xnlNodes.Count > 0)
+                try
                 {
-                    nodeContent = true;
-                    break;
+                    xmlDoc = XDocument.Load(docReader);
                 }
-            }
-            
-            if (nodeContent)
-            {
-
-                foreach (XmlNode node in xnlNodes)
+                catch (Exception)
                 {
-                    var driverName = "";
-                    var carModel = "";
-                    var carClass = "";
-                    var laps = 0;
-                    var lapsUnder = 0;
-                    foreach (XmlNode childNode in node.ChildNodes)
+
+                    Logging.AddLogEntry(filePath + " : Root element is corrupted");
+                    return true;
+                }
+
+
+                var nodePossibilities = new List<string> {"Practice1","Warmup","Qualify","Race"};//rFactorXML/RaceResults/Warmup/Driver
+                var xelRoot = xmlDoc.Root;
+                var nodeExists = "";
+
+                foreach (var item in nodePossibilities)
+                {
+                    var test = xmlDoc.Root.Element("RaceResults").Element(item);
+                    if (test != null)
                     {
-
-                        if (childNode.Name == "Name")
-                        {
-                            driverName = childNode.InnerText;
-                        }
-                        if (childNode.Name == "CarType")
-                        {
-                            carModel = childNode.InnerText;
-                        }
-                        if (childNode.Name == "CarClass")
-                        {
-                            carClass = childNode.InnerText;
-                        }
-                        if (childNode.Name == "Lap")
-                        {
-                            //First we have to establise if it's a full lap
-                            var isFullLap = false;
-                            var attributes = childNode.Attributes;
-                            foreach (XmlAttribute attribute in attributes)
-                            {
-                                //If it's a full lap then s1,s2 and s3 attributes are present in the lap-node
-                                if (attribute.Name == "s1" || attribute.Name == "s2" || attribute.Name == "s3")
-                                {
-                                    isFullLap = IsAttributePresentOnNode(childNode, attribute.Name);
-                                }
-                            }
-                            var lapTimeText = childNode.InnerText.ToString();
-                            var dotIndex = lapTimeText.IndexOf(".");
-                            var s = lapTimeText.Substring(0, dotIndex);
-                            Int16 num;
-                            var isNumber = Int16.TryParse(s, out num);
-                            
-                                //If the lap is a full lap and the car is a GTE class, we add a lap to the lapcount
-                            if (isFullLap && isNumber && carClass == "GTE")
-                            {
-                                laps++;
-                            }
-                            //If the car is a LMP, then we have to confirm that the laptime is faster than 3:30 (210 seconds)
-                            if (isFullLap && isNumber && carClass == "LMP")
-                            {
-                                laps++;
-                                
-                                //var lapTime = Convert.ToInt16(lapTimeText.Substring(0, dotIndex + 1));
-                                if (isNumber && num < 210)
-                                {
-                                    lapsUnder++;
-                                }
-                            }
-
-
-
-                        }
-
-                    }
-
-                    //Lets see if the driver has done any previous laps in that type of car
-                    var qualificationObject = DataBaseService.GetQualificationByNameAndModel(driverName, carModel);
-                    //If the driver is already qualified, we stop here
-                    if (qualificationObject.Qualified == true)
-                    {
+                        nodeExists = item;
                         break;
                     }
-
-
-                    qualificationObject.DriverName = driverName;
-                    qualificationObject.CarModel = carModel;
-                    qualificationObject.Class = carClass;
-                    var test0=qualificationObject.CompletedLaps;
-                    qualificationObject.CompletedLaps += laps;
-                    var test1 = qualificationObject.CompletedLaps;
-                    if (carClass == "GTE" && qualificationObject.CompletedLaps > 49)
+                }
+                if (nodeExists == "")
+                {
+                    return true;
+                }
+                foreach (var driver in xmlDoc.Root.Element("RaceResults").Element(nodeExists).Elements("Driver"))
+                {
+                    if (driver != null)
                     {
-                        qualificationObject.Qualified = true;
+
+
+                        var driverName = "";
+                        var carModel = "";
+                        var carClass = "";
+                        var laps = 0;
+                        var lapsUnder = 0;
+                        foreach (XElement childNode in driver.Elements())
+                        {
+                            if(childNode.Name == "isPlayer"&& childNode.Value == "0")
+                            {
+                                goto BreakOut;
+                            }
+                            if (childNode.Name == "Name")
+                            {
+                                driverName = childNode.Value;
+                            }
+                            if (childNode.Name == "CarType")
+                            {
+                                carModel = childNode.Value;
+                            }
+                            if (childNode.Name == "CarClass")
+                            {
+                                carClass = childNode.Value;
+                            }
+                            if (childNode.Name == "Lap")
+                            {
+                                //First we have to establise if it's a full lap
+                                var isFullLap = false;
+                                var attributes = childNode.Attributes();
+                                foreach (XAttribute attribute in attributes)
+                                {
+                                    //If it's a full lap then s1,s2 and s3 attributes are present in the lap-node
+                                    if (attribute.Name == "s1" || attribute.Name == "s2" || attribute.Name == "s3")
+                                    {
+                                        isFullLap = IsAttributePresentOnNode(childNode, attribute.Name.ToString());
+                                    }
+                                }
+                                var lapTimeText = childNode.Value.ToString();
+                                var dotIndex = lapTimeText.IndexOf(".");
+                                var s = lapTimeText.Substring(0, dotIndex);
+                                Int16 num;
+                                var isNumber = Int16.TryParse(s, out num);
+
+                                //If the lap is a full lap and the car is a GTE class, we add a lap to the lapcount
+                                if (isFullLap && isNumber && carClass == "GTE")
+                                {
+                                    laps++;
+                                }
+                                //If the car is a LMP, then we have to confirm that the laptime is faster than 3:30 (210 seconds)
+                                if (isFullLap && isNumber && carClass == "LMP")
+                                {
+                                    laps++;
+
+                                    //var lapTime = Convert.ToInt16(lapTimeText.Substring(0, dotIndex + 1));
+                                    if (isNumber && num < 210)
+                                    {
+                                        lapsUnder++;
+                                    }
+                                }
+
+
+
+                            }
+
+                        }
+
+                        //Lets see if the driver has done any previous laps in that type of car
+                        var qualificationObject = DataBaseService.GetQualificationByNameAndModel(driverName, carModel);
+                        //If the driver is already qualified, we stop here
+                        if (qualificationObject.Qualified == true)
+                        {
+                            break;
+                        }
+
+
+                        qualificationObject.DriverName = driverName;
+                        qualificationObject.CarModel = carModel;
+                        qualificationObject.Class = carClass;
+                        var test0 = qualificationObject.CompletedLaps;
+                        qualificationObject.CompletedLaps += laps;
+                        var test1 = qualificationObject.CompletedLaps;
+                        if (carClass == "GTE" && qualificationObject.CompletedLaps > 49)
+                        {
+                            qualificationObject.Qualified = true;
+                        }
+                        if (carClass == "LMP" && !qualificationObject.TenInARow && lapsUnder > 9)
+                        {
+                            qualificationObject.TenInARow = true;
+
+                        }
+                        if (carClass == "LMP" && qualificationObject.CompletedLaps > 49 && qualificationObject.TenInARow)
+                        {
+                            qualificationObject.Qualified = true;
+                        }
+
+                        DataBaseService.AddQualificationInstance(qualificationObject);
+
+
+
+                    BreakOut:
+                        continue;
                     }
-                    if (carClass == "LMP" && !qualificationObject.TenInARow && lapsUnder > 9)
-                    {
-                        qualificationObject.TenInARow = true;
-
-                    }
-                    if (carClass == "LMP" && qualificationObject.CompletedLaps > 49 && qualificationObject.TenInARow)
-                    {
-                        qualificationObject.Qualified = true;
-                    }
-
-                    DataBaseService.AddQualificationInstance(qualificationObject);
-
-
+                
                 }
                 
+                return true;
             }
-            return true;
         }
 
-        private static bool IsAttributePresentOnNode(XmlNode node, string attrName)
+        private static bool IsAttributePresentOnNode(XElement node, string attrName)
         {
             var isPresent = false;
-            var attr = node.Attributes[attrName];
+            var attr = node.Attributes(attrName);
             if (attr != null)
             {
                 isPresent = true;
