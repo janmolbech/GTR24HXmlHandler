@@ -9,7 +9,7 @@ using System.Threading;
 namespace GTR24HXmlHandler
 {
     public static class Logging
-    {
+    {   
         public static void AddLogEntry(string logMessage)
         {
             string path = @"C:\GTR24HLogs\errorlog.txt";
@@ -32,6 +32,33 @@ namespace GTR24HXmlHandler
 
                     Log(logMessage, tw);
                    
+                }
+            }
+        }
+
+        public static void AddPathEntry(string path)
+        {
+            string filePath = @"C:\GTR24HLogs\path.txt";
+            bool dirExists = Directory.Exists(@"C:\GTR24HLogs");
+
+            if (!dirExists)
+            {
+                Directory.CreateDirectory(@"C:\GTR24HLogs");
+            }
+            using (var tw = new StreamWriter(filePath))
+            {
+                if (!File.Exists(filePath))
+                {
+                    File.Create(filePath);
+
+                    tw.Write(path);
+
+                }
+                else if (File.Exists(filePath))
+                {
+
+                    tw.Write(path);
+
                 }
             }
         }

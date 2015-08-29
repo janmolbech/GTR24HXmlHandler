@@ -25,10 +25,20 @@ namespace GTR24HXmlHandler
         public Form1()
         {
             InitializeComponent();
-            btnStartWatch.Enabled = false;
-            btnHandleExisting.Enabled = false;
+            var pathSet = CheckIfPathExists();
             fileWatcher = new FileSystemWatcher();
             fileWatcher.SynchronizingObject = this;
+            if (pathSet != "")
+            {
+                tbFileLocation.Text = pathSet;
+                PerformClickEvent();
+            }
+            else
+            {
+                btnStartWatch.Enabled = false;
+                btnHandleExisting.Enabled = false;
+            }
+           
         }
 
         private void BtnBrowse_Click(object sender, EventArgs e)
@@ -39,6 +49,7 @@ namespace GTR24HXmlHandler
                 tbFileLocation.Text = folderBrowserDialog.SelectedPath;
                 if (tbFileLocation.Text != "")
                 {
+                    Logging.AddPathEntry(tbFileLocation.Text);
                     btnStartWatch.Enabled = true;
                     btnHandleExisting.Enabled = true;
                 }
@@ -47,42 +58,47 @@ namespace GTR24HXmlHandler
 
         private void btnStartWatch_Click(object sender, EventArgs e)
         {
-           
-            var fileCount = Directory.EnumerateFiles(tbFileLocation.Text, "*.xml", SearchOption.TopDirectoryOnly).Count();
-            if (fileCount == 0) {
-                         
 
-                if (isWatching)
-                {
-                    isWatching = false;
-                    fileWatcher.EnableRaisingEvents = false;
-                    lblInfo.Text = "Stopped";
-                    //fileWatcher.Dispose();
-                    btnStartWatch.BackColor = Color.LightSkyBlue;
-                    btnStartWatch.Text = "Start Watching";
-                }
-                else
-                {
-                    isWatching = true;
+            PerformClickEvent();
 
-                    lblInfo.Text = "Running";
+        }
 
-                     fileWatcher.Filter = "*.xml*";
-                    fileWatcher.Path = tbFileLocation.Text + "\\";
+        private void PerformClickEvent()
+        {
+            var files = Directory.EnumerateFiles(tbFileLocation.Text, "*.xml", SearchOption.TopDirectoryOnly);
 
-                    fileWatcher.NotifyFilter= NotifyFilters.LastAccess | NotifyFilters.LastWrite | NotifyFilters.FileName;
 
-                    fileWatcher.Created += new FileSystemEventHandler(OnChanged);
-                    fileWatcher.EnableRaisingEvents = true;
-                    btnStartWatch.BackColor = Color.LightSalmon;
-                    btnStartWatch.Text = "Stop Watching";
-                }
+
+            if (isWatching)
+            {
+                isWatching = false;
+                fileWatcher.EnableRaisingEvents = false;
+                lblInfo.Text = "Stopped";
+                //fileWatcher.Dispose();
+                btnStartWatch.BackColor = Color.LightSkyBlue;
+                btnStartWatch.Text = "Start Watching";
             }
             else
             {
-                lblInfo.Text = "Watching cannot be started since there are unprocessed files in the directory.";
+                isWatching = true;
+
+                lblInfo.Text = "Running";
+
+                fileWatcher.Filter = "*.xml*";
+                fileWatcher.Path = tbFileLocation.Text + "\\";
+
+                fileWatcher.NotifyFilter = NotifyFilters.LastAccess | NotifyFilters.LastWrite | NotifyFilters.FileName;
+
+                fileWatcher.Created += new FileSystemEventHandler(OnChanged);
+                fileWatcher.EnableRaisingEvents = true;
+                btnStartWatch.BackColor = Color.LightSalmon;
+                btnStartWatch.Text = "Stop Watching";
+
+                foreach (var item in files)
+                {
+                    DoWork(item);
+                }
             }
-           
         }
 
         private void btnHandleExisting_Click(object sender, EventArgs e)
@@ -106,13 +122,8 @@ namespace GTR24HXmlHandler
                         var fileName = file.Substring(file.LastIndexOf("\\") + 1);
                         if (addData)
                         {
-                           
                             File.Move(fromPath, toPath + fileName);
-                           
-                            //Thread.Sleep(2000);
-                            //lblInfo.Text = "Running";
-
-
+                                                      
                         }
                     }
                     lblInfo.Text = "Processed no." + count;
@@ -123,13 +134,26 @@ namespace GTR24HXmlHandler
         private void OnChanged(object sender, FileSystemEventArgs e)
         {
             var fromPath = e.FullPath;
-            var addData = ExtractDataFromFile(fromPath);
+            DoWork(fromPath);
+            
+            
+        }
+
+        private void DoWork(string filePath)
+        {
+
+            var index = filePath.LastIndexOf("\\");
+            var sub = filePath.Substring(index+1);
+            var addData = ExtractDataFromFile(filePath);
             if (addData)
             {
-                                
-                File.Move(fromPath, toPath + e.Name);
-                lblInfo.Text = "it worked";
-                Thread.Sleep(3000);
+                if (!Directory.Exists(toPath))
+                {
+                    Directory.CreateDirectory(toPath);
+                }
+                File.Move(filePath, toPath + sub);
+             
+                //Thread.Sleep(1000);
                 lblInfo.Text = "Running";
 
 
@@ -142,27 +166,6 @@ namespace GTR24HXmlHandler
 
             XDocument xmlDoc = null;
 
-            //try
-            //{
-            //    xmlDoc.Load(filePath);
-            //    if (xmlDoc.FirstChild.NodeType == XmlNodeType.XmlDeclaration)
-            //    {
-            //        XmlDeclaration dec = (XmlDeclaration)xmlDoc.FirstChild;
-            //        dec.Encoding = "windows-1250";
-            //    }
-            //    else
-            //    {
-            //        XmlDeclaration dec = xmlDoc.CreateXmlDeclaration("1.0", null, null);
-            //        dec.Encoding = "windows-1250";
-            //        xmlDoc.InsertBefore(dec, xmlDoc.DocumentElement);
-            //    }
-            //}
-            //catch (Exception e)
-            //{
-
-            //    Logging.AddLogEntry(filePath + " : "+ e.Message);
-            //    return true;
-            //}
             using (StreamReader docReader = new StreamReader(filePath, Encoding.GetEncoding("windows-1250")))
             {
                 try
@@ -267,8 +270,8 @@ namespace GTR24HXmlHandler
 
                         //Lets see if the driver has done any previous laps in that type of car
                         var qualificationObject = DataBaseService.GetQualificationByNameAndModel(driverName, carModel);
-                        //If the driver is already qualified, we stop here
-                        if (qualificationObject.Qualified == true)
+                        //If the driver is already qualified, or the driver hasn't done any laps, we stop here
+                        if (qualificationObject.Qualified == true||(qualificationObject.CompletedLaps==0&&laps==0))
                         {
                             break;
                         }
@@ -318,6 +321,24 @@ namespace GTR24HXmlHandler
             }
 
             return isPresent;
+        }
+
+        private static string CheckIfPathExists()
+        {
+            var Result = "";
+            var filePath = @"C:\GTR24HLogs\path.txt";
+            if (!File.Exists(filePath))
+            {
+                File.Create(filePath).Dispose();
+            }
+            string[] lines = System.IO.File.ReadAllLines(filePath);
+            if (lines.Length == 0)
+            {
+                return Result;
+            }
+            Result = lines[0];
+
+            return Result;
         }
     }
 }
